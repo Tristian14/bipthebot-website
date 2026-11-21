@@ -317,5 +317,83 @@
   </footer>
 
   <script src="game.js"></script>
+<script>
+  // Kill browser robotic speech synthesis immediately
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+  }
+
+  const bipMp3Cache = {};
+  let activeBipAudio = null;
+
+  // Universal ElevenLabs static MP3 & <audio> tag player (Zero API key, 0ms replay)
+  window.playBipVoice = async function (itemId, fallbackName = '') {
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if (activeBipAudio) {
+      activeBipAudio.pause();
+      activeBipAudio.currentTime = 0;
+    }
+
+    const cleanId = String(itemId || '').trim();
+    const slug = cleanId.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const underscoreSlug = slug.replace(/-/g, '_');
+
+    // 1. Check if an <audio> tag already exists in the HTML for this item
+    const domAudio =
+      document.getElementById(cleanId) ||
+      document.getElementById(`audio-${cleanId}`) ||
+      document.getElementById(`audio-${slug}`) ||
+      document.querySelector(`audio[data-id="${cleanId}"], audio[data-id="${slug}"]`);
+
+    if (domAudio) {
+      activeBipAudio = domAudio;
+      domAudio.currentTime = 0;
+      domAudio.play().catch(err => console.warn('Audio play blocked:', err));
+      return;
+    }
+
+    // 2. Check cached MP3 from previous tap
+    if (bipMp3Cache[cleanId]) {
+      activeBipAudio = bipMp3Cache[cleanId];
+      activeBipAudio.currentTime = 0;
+      activeBipAudio.play().catch(() => {});
+      return;
+    }
+
+    // 3. Try common GitHub Pages /audio/ filename formats automatically
+    const candidatePaths = [
+      `./audio/${cleanId}.mp3`,
+      `./audio/${slug}.mp3`,
+      `./audio/${underscoreSlug}.mp3`,
+      `./${cleanId}.mp3`,
+      `./${slug}.mp3`
+    ];
+
+    for (const path of candidatePaths) {
+      try {
+        const audio = new Audio(path);
+        await new Promise((resolve, reject) => {
+          audio.oncanplaythrough = resolve;
+          audio.onerror = reject;
+          audio.load();
+        });
+        bipMp3Cache[cleanId] = audio;
+        activeBipAudio = audio;
+        await audio.play();
+        return;
+      } catch (_) {
+        // Try next candidate filename
+      }
+    }
+
+    console.warn(
+      `[Bip Audio] Missing ElevenLabs MP3 for item "${cleanId}" (${fallbackName}). Upload as /audio/${slug}.mp3`
+    );
+  };
+
+  // Override old robotic TTS functions from the prototype if present
+  window.speakText = (text, itemId) => window.playBipVoice(itemId || text, text);
+  window.speakBipLine = (text, itemId) => window.playBipVoice(itemId || text, text);
+</script>
 </body>
 </html>
